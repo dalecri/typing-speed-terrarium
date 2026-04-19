@@ -19,6 +19,8 @@
     mushroomCap:  [0xd8452a, 0xe67a3a, 0xc28adf, 0xf0c248, 0xeee6d0],
     mushroomStem: 0xf2ead0,
     stalkBlue:    [0x6a9cff, 0x9bb8ff],
+    daisy:        { petal: 0xffffff, centre: 0xf5c842, stem: 0x3d7a3a },
+    allium:       { floret: [0xc084fc, 0xa855f7, 0x9333ea, 0xd8b4fe], stem: 0x4a7c4e },
     rock:     [0x5a5a66, 0x6e6e78, 0x4a4a54],
     glass:    0xbfd8e8,
     fireflyCore: 0xffe8a0,
@@ -58,7 +60,7 @@
   // ---- Init scene ----
   function init(container) {
     scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x1a1838, 0.028);
+    scene.fog = new THREE.FogExp2(0x1a1838, 0.016);
 
     const w = container.clientWidth, h = container.clientHeight;
     camera = new THREE.PerspectiveCamera(36, w / h, 0.1, 200);
@@ -71,37 +73,54 @@
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.36;
     container.appendChild(renderer.domElement);
 
     clock = new THREE.Clock();
 
-    // --- Lighting: dusk ---
-    // Warm key light low from the right (sunset)
-    const key = new THREE.DirectionalLight(0xffb066, 0.9);
-    key.position.set(8, 6, 6);
+    // --- Lighting ---
+    // Warm key from upper-right — main sun through glass
+    const key = new THREE.DirectionalLight(0xffe4b0, 1.87);
+    key.position.set(8, 10, 6);
     key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(2048, 2048);
     key.shadow.camera.near = 1;
-    key.shadow.camera.far = 40;
-    key.shadow.camera.left = -10;
-    key.shadow.camera.right = 10;
-    key.shadow.camera.top = 10;
-    key.shadow.camera.bottom = -10;
+    key.shadow.camera.far = 50;
+    key.shadow.camera.left = -12;
+    key.shadow.camera.right = 12;
+    key.shadow.camera.top = 12;
+    key.shadow.camera.bottom = -12;
     key.shadow.bias = -0.001;
     scene.add(key);
 
-    // Cool fill from upper-left
-    const fill = new THREE.DirectionalLight(0x7a88ff, 0.5);
-    fill.position.set(-6, 6, 4);
+    // Front fill — soft neutral from camera direction so plants read clearly
+    const front = new THREE.DirectionalLight(0xd0e8ff, 0.94);
+    front.position.set(0, 4, 18);
+    scene.add(front);
+
+    // Cool blue-purple fill from upper-left for colour contrast
+    const fill = new THREE.DirectionalLight(0x8fa8ff, 0.64);
+    fill.position.set(-8, 8, 4);
     scene.add(fill);
 
-    // Ambient twilight
-    const amb = new THREE.AmbientLight(0x4a4870, 0.55);
+    // Ambient — lifted significantly so shadows aren't jet-black
+    const amb = new THREE.AmbientLight(0x9090c0, 1.19);
     scene.add(amb);
 
-    // Bottom bounce (soil)
-    const bounce = new THREE.HemisphereLight(0x3a3068, 0x1a1428, 0.35);
+    // Hemisphere: warm sky above, warm earth below
+    const bounce = new THREE.HemisphereLight(0xc0c8ff, 0x7a6040, 0.77);
     scene.add(bounce);
+
+    // Interior point light — sits inside the box, warms soil & plants from within
+    const interior = new THREE.PointLight(0xffe8c0, 1.53, 14, 1.5);
+    interior.position.set(0, -BOX_H / 2 + 3, 0);
+    scene.add(interior);
+
+    // Rim light from behind — catches glass edges and plant silhouettes
+    const rim = new THREE.DirectionalLight(0xffd0a0, 0.51);
+    rim.position.set(0, 6, -14);
+    scene.add(rim);
 
     // --- Terrarium group ---
     terrariumGroup = new THREE.Group();
@@ -347,6 +366,21 @@
     } else if (kind === 'stalkBud') {
       const m = mossMat(colorHex || pick(COL.flower));
       mesh = new THREE.Mesh(new THREE.BoxGeometry(VOX * 0.55, VOX * 0.55, VOX * 0.55), m);
+    } else if (kind === 'daisyStem') {
+      const m = mossMat(colorHex || COL.daisy.stem);
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(VOX * 0.18, VOX, VOX * 0.18), m);
+    } else if (kind === 'daisyCentre') {
+      const m = mossMat(COL.daisy.centre);
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(VOX * 0.38, VOX * 0.38, VOX * 0.38), m);
+    } else if (kind === 'daisyPetal') {
+      const m = mossMat(COL.daisy.petal);
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(VOX * 0.72, VOX * 0.14, VOX * 0.22), m);
+    } else if (kind === 'alliumStem') {
+      const m = mossMat(colorHex || COL.allium.stem);
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(VOX * 0.16, VOX, VOX * 0.16), m);
+    } else if (kind === 'alliumFloret') {
+      const m = mossMat(colorHex || pick(COL.allium.floret));
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(VOX * 0.22, VOX * 0.22, VOX * 0.22), m);
     }
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -385,11 +419,13 @@
       const r = Math.random();
       let kind, h;
       // Plant kind distribution for variety
-      if (r < 0.35)      { kind = 'moss';     h = 1 + ((Math.random() * 2) | 0); } // 1-3
-      else if (r < 0.58) { kind = 'fern';     h = 3 + ((Math.random() * 3) | 0); } // 3-6
-      else if (r < 0.72) { kind = 'flower';   h = 2 + ((Math.random() * 3) | 0); } // 2-5
-      else if (r < 0.86) { kind = 'mushroom'; h = 1; }                              // squat
-      else               { kind = 'stalk';    h = 4 + ((Math.random() * 3) | 0); } // 4-7 tall colorful
+      if (r < 0.28)      { kind = 'moss';     h = 1 + ((Math.random() * 2) | 0); } // 1-3
+      else if (r < 0.46) { kind = 'fern';     h = 3 + ((Math.random() * 3) | 0); } // 3-6
+      else if (r < 0.58) { kind = 'flower';   h = 2 + ((Math.random() * 3) | 0); } // 2-5
+      else if (r < 0.68) { kind = 'mushroom'; h = 1; }                              // squat
+      else if (r < 0.78) { kind = 'stalk';    h = 4 + ((Math.random() * 3) | 0); } // 4-7 tall
+      else if (r < 0.89) { kind = 'daisy';    h = 2 + ((Math.random() * 2) | 0); } // 2-4 short
+      else               { kind = 'allium';   h = 4 + ((Math.random() * 3) | 0); } // 4-7 tall globe
       const pl = createPlant(x, z, kind, h);
       // Assign a stable color to this plant
       if (kind === 'flower')   pl.tint = pick(COL.flower);
@@ -469,6 +505,36 @@
       }
       if (plant.heightVox + 1 >= plant.targetHeight) {
         addPlantBlock(plant, yOffset + VOX * 0.55, 'stalkBud', plant.budColor);
+      }
+    } else if (plant.kind === 'daisy') {
+      // Short stem, then white petals + yellow centre bloom at top
+      addPlantBlock(plant, yOffset, 'daisyStem');
+      if (plant.heightVox + 1 >= plant.targetHeight) {
+        // Centre bud
+        addPlantBlock(plant, yOffset + VOX * 0.55, 'daisyCentre');
+        // 4 petals in a cross, rotated 45° each pair
+        for (let i = 0; i < 4; i++) {
+          const p = addPlantBlock(plant, yOffset + VOX * 0.55, 'daisyPetal');
+          p.rotation.y = (Math.PI / 4) * i;
+          p.position.y = yOffset + VOX * 0.54;
+        }
+      }
+    } else if (plant.kind === 'allium') {
+      // Tall thin stem topped with a sphere of tiny purple florets
+      addPlantBlock(plant, yOffset, 'alliumStem');
+      if (plant.heightVox + 1 >= plant.targetHeight) {
+        // Sphere cluster of florets at tip — 3 layers
+        const offsets = [
+          [0, 0], [0.28, 0], [-0.28, 0], [0, 0.28], [0, -0.28],
+          [0.2, 0.2], [-0.2, 0.2], [0.2, -0.2], [-0.2, -0.2],
+          [0.14, 0], [-0.14, 0], [0, 0.14], [0, -0.14],
+        ];
+        offsets.forEach(([ox, oz]) => {
+          const oy = Math.sqrt(Math.max(0, 0.3 * 0.3 - ox * ox - oz * oz));
+          const f = addPlantBlock(plant, yOffset + VOX * 0.7 + oy, 'alliumFloret', pick(COL.allium.floret));
+          f.position.x += ox;
+          f.position.z += oz;
+        });
       }
     }
     plant.heightVox++;
